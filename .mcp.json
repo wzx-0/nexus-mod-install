@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx.cmd",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--userDataDir=./.chrome_mod_profile",
+        "--chrome-arg=--disable-blink-features=AutomationControlled",
+        "--ignore-default-chrome-arg=--enable-automation"
+      ]
+    }
+  }
+}

@@ -1,0 +1,5 @@
+interface:
+  display_name: Nexus 模组下载与管理
+  short_description: 支持多游戏模组中英文意图检索、Nexus 链接/ID 直装、四级通道自动下载（含桌面 Chrome 会话热复用模拟）、多格式去嵌套部署及软删除恢复
+policy:
+  allow_implicit_invocation: true

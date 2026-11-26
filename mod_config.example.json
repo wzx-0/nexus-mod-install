@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "defaultGame": "stardewvalley",
+  "nexusApiKey": "<YOUR_NEXUS_API_KEY>",
+  "tmpFolderPath": "./tmp_downloads",
+  "environment": {
+    "chromePath": "auto",
+    "chromeProfileDir": "./.chrome_mod_profile",
+    "cdpPort": 9222,
+    "downloadsDir": "auto",
+    "tmpDownloadsDir": "./tmp_downloads",
+    "backupDir": "./deleted_mods",
+    "installedModsDir": "./installed_mods",
+    "mappingsFile": "./mod_mappings.json",
+    "extraDownloadDirs": []
+  },
+  "games": {
+    "stardewvalley": {
+      "name": "Stardew Valley",
+      "gamePath": "C:/Program Files (x86)/Steam/steamapps/common/Stardew Valley",
+      "modsPath": "C:/Program Files (x86)/Steam/steamapps/common/Stardew Valley/Mods",
+      "gameDomain": "stardewvalley",
+      "status": "installed_active",
+      "mods_dir_exists": true,
+      "source": "Steam",
+      "installed_mods_file": "./installed_mods/stardewvalley.json"
+    },
+    "cyberpunk2077": {
+      "name": "Cyberpunk 2077",
+      "gamePath": "C:/Program Files (x86)/Steam/steamapps/common/Cyberpunk 2077",
+      "modsPath": "C:/Program Files (x86)/Steam/steamapps/common/Cyberpunk 2077/archive/pc/mod",
+      "gameDomain": "cyberpunk2077",
+      "status": "installed_active",
+      "mods_dir_exists": true,
+      "source": "Steam",
+      "installed_mods_file": "./installed_mods/cyberpunk2077.json"
+    },
+    "reddeadredemption2": {
+      "name": "Red Dead Redemption 2",
+      "gamePath": "C:/Program Files (x86)/Steam/steamapps/common/Red Dead Redemption 2",
+      "modsPath": "C:/Program Files (x86)/Steam/steamapps/common/Red Dead Redemption 2/lml",
+      "gameDomain": "reddeadredemption2",
+      "status": "installed_active",
+      "mods_dir_exists": true,
+      "source": "Steam",
+      "installed_mods_file": "./installed_mods/reddeadredemption2.json"
+    },
+    "phantomblandzero": {
+      "name": "Phantom Blade Zero",
+      "gamePath": "",
+      "modsPath": "",
+      "gameDomain": "phantomblandzero",
+      "status": "not_installed",
+      "mods_dir_exists": false,
+      "source": "Pending",
+      "installed_mods_file": "./installed_mods/phantomblandzero.json"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# User Configuration & Sensitive Credentials
+mod_config.json
+
+# Browser Profiles & Active Sessions (contains cookies/passwords)
+.chrome_mod_profile/
+
+# Local Mod Manifests & Installation Records
+installed_mods/
+installed_mods.json
+
+# Local Archives, Downloads, and Backups
+deleted_mods/
+tmp_downloads/
+*.zip
+*.7z
+*.rar
+*.tar.gz
+*.ftmp
+*.crdownload
+
+# IDE & Editor Configurations
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS Generated Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Logs
+*.log
