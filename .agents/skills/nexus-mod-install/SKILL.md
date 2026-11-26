@@ -73,7 +73,7 @@ python .agents/skills/nexus-mod-install/scripts/manage_mod.py -g <game> --uninst
 python .agents/skills/nexus-mod-install/scripts/manage_mod.py -g <game> --reinstall "<模组名或中文名>"
 ```
 
-### 场景 E：物理目录重扫校准、模组更新检查与授权新游戏
+### 场景 E：物理目录重扫校准、模组更新检查、授权新游戏与规则学习闭环
 ```bash
 # 重新扫描单游戏物理目录并刷新中文名与专属清单 installed_mods/<game>.json
 python .agents/skills/nexus-mod-install/scripts/scan_single_game.py -g <game>
@@ -81,8 +81,12 @@ python .agents/skills/nexus-mod-install/scripts/scan_single_game.py -g <game>
 # 检查单游戏已关联 Nexus ID 的模组更新并自动升级
 python .agents/skills/nexus-mod-install/scripts/nexus_mod_install.py -g <game> --check-updates --non-interactive [--close-browser]
 
-# 仅在用户明确授权添加新游戏时执行：按需探测并写入 mod_config.json 白名单
+# 用户需要添加新游戏时执行：按需探测路径、自动识别引擎框架 (BepInEx/UnrealPak/REFramework/REDengine3/UE4SS 等) 并写入 mod_config.json 与 mod_mappings.json
 python .agents/skills/nexus-mod-install/scripts/nexus_mod_install.py --add-game "<游戏名>" [--game-path "<自定义游戏根目录>"]
+
+# 查看 / 手动录入统一知识库 (mod_mappings.json) 中的游戏规则与别名
+python .agents/skills/nexus-mod-install/scripts/nexus_mod_install.py --show-learned
+python .agents/skills/nexus-mod-install/scripts/nexus_mod_install.py --learn-rule -g <game> --mods-subdir "<相对目录>" --install-mode <mode> [--framework <fw>] [--alias "<中文别名>"]
 ```
 
 ---
@@ -103,6 +107,7 @@ python .agents/skills/nexus-mod-install/scripts/nexus_mod_install.py --add-game 
 | `--no-simulate-browser` | 禁用免费账号 403 时的桌面 Chrome 自动模拟回退（仅试探 CDN / 开源镜像 / 本地包）。 |
 | `--no-download-deps` | 仅提示缺失的 Nexus 前置模组而不自动联装（默认开启自动联装）。 |
 | `-c, --config <path>` | 指定自定义 `mod_config.json` 路径（亦可通过环境变量 `MOD_CONFIG_PATH` 全局指定）。 |
+| `--show-learned` / `--learn-rule` | 查看 `mod_mappings.json` 中的统一学习规则总览，或手动教学/覆盖新游戏部署规则与中文别名。 |
 | `--non-interactive` | 非交互模式，Agent 自动化调用时必传。 |
 
 ---

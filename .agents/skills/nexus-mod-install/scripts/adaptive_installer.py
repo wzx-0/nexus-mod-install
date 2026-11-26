@@ -23,7 +23,8 @@ from typing import Optional, Dict, Any, List, Tuple
 # 导入集中化映射与规则配置
 from config_manager import (
     load_mappings, get_game_profiles, get_mod_translations,
-    get_ue4ss_builtin_folders, get_game_mod_metadata
+    get_ue4ss_builtin_folders, get_game_mod_metadata,
+    learn_game_profile
 )
 
 try:
@@ -49,7 +50,7 @@ def find_project_root(start_path: Optional[Path] = None) -> Path:
 
 
 PROJECT_ROOT = find_project_root()
-LOCAL_RULES_FILE = PROJECT_ROOT / "game_install_rules.json"
+LOCAL_RULES_FILE = PROJECT_ROOT / "mod_mappings.json"
 
 # ==============================================================================
 # 游戏规则 Profiles 与模组中文对照字典 (已完全抽离至 mod_mappings.json)
@@ -174,22 +175,258 @@ class AdaptiveInstallEngine:
         self.registry_dir = registry_dir or PROJECT_ROOT
 
     def _load_rules(self) -> Dict[str, Any]:
-        merged = dict(get_game_profiles())
-        if self.rules_path.exists():
-            try:
-                learned = json.loads(self.rules_path.read_text(encoding="utf-8"))
-                merged.update(learned)
-            except Exception as e:
-                print(f"[警告] 读取规则文件失败: {e}")
-        return merged
-
-    def save_learned_rule(self, game_domain: str, rule_data: dict) -> None:
-        self.rules[game_domain] = rule_data
         try:
-            self.rules_path.parent.mkdir(parents=True, exist_ok=True)
-            self.rules_path.write_text(json.dumps(self.rules, indent=2, ensure_ascii=False), encoding="utf-8")
+            return dict(load_mappings(str(self.rules_path)).get("game_profiles", {}))
+        except Exception as e:
+            print(f"[警告] 读取映射规则文件失败: {e}")
+            return {}
+
+    def save_learned_rule(self, game_domain: str, rule_data: dict) -> Dict[str, Any]:
+        merged = learn_game_profile(game_domain, rule_data, custom_mappings_path=self.rules_path)
+        self.rules[game_domain] = dict(merged)
+        return self.rules[game_domain]
+
+    def detect_game_profile_from_disk(
+        self,
+        game_domain: str,
+        game_root: Path,
+        mods_path: Optional[Path] = None,
+        game_name: Optional[str] = None,
+        nexus_game_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        面向新游戏的本地引擎与模组框架自动探测：
+        根据游戏根目录特征自动推断引擎框架 (SMAPI / BepInEx / MelonLoader / UE4SS / UnrealPak / REFramework / CreationEngine / Generic)
+        与相对 mods_subdir、install_mode 及特征文件后缀。
+        """
+        root = Path(game_root).resolve()
+        rel_mods = ""
+        if mods_path:
+            try:
+                rel_mods = Path(mods_path).resolve().relative_to(root).as_posix()
+            except Exception:
+                rel_mods = ""
+
+        framework = "Generic"
+        mods_subdir = rel_mods or "Mods"
+        mod_manifest: Optional[str] = None
+        install_mode = "subfolder_per_mod"
+        root_strip = True
+        sig_files: List[str] = []
+
+        if root.exists():
+            # 1. SMAPI
+            if (root / "StardewModdingAPI.exe").exists() or (root / "StardewModdingAPI").exists():
+                framework = "SMAPI"
+                mods_subdir = "Mods"
+                mod_manifest = "manifest.json"
+                install_mode = "subfolder_per_mod"
+                root_strip = True
+                sig_files = ["manifest.json"]
+            # 2. Cyberpunk 2077 / REDengine
+            elif (root / "archive" / "pc").exists() or (root / "red4ext").exists() or (root / "r6").exists():
+                framework = "REDengine"
+                mods_subdir = "archive/pc/mod"
+                mod_manifest = "info.json"
+                install_mode = "merge_root"
+                root_strip = False
+                sig_files = ["archive", "r6", "bin", "red4ext", "mods", ".archive", ".xl", ".reds"]
+            # 2.5 The Witcher 3 / REDengine 3
+            elif (root / "bin" / "x64" / "witcher3.exe").exists() or (root / "bin" / "x64_dx12" / "witcher3.exe").exists() or (root / "content" / "content0").exists():
+                framework = "REDengine3"
+                mods_subdir = "mods"
+                install_mode = "witcher3_mod"
+                root_strip = True
+                sig_files = ["mods", "dlc", "bin", ".ws", ".bundle", ".w3strings"]
+            # 2.6 Hollow Knight / Unity Modding API
+            elif (root / "hollow_knight_Data").exists():
+                framework = "HollowKnightModdingAPI"
+                mods_subdir = "hollow_knight_Data/Managed/Mods"
+                install_mode = "subfolder_per_mod"
+                root_strip = True
+                sig_files = [".dll", "Modding.dll"]
+            # 3. Unity + BepInEx
+            elif (root / "BepInEx").exists():
+                framework = "BepInEx"
+                mods_subdir = "BepInEx/plugins"
+                install_mode = "bepinex"
+                root_strip = True
+                sig_files = ["BepInEx", ".dll"]
+            # 4. Unity + MelonLoader
+            elif (root / "MelonLoader").exists():
+                framework = "MelonLoader"
+                mods_subdir = "Mods"
+                install_mode = "subfolder_per_mod"
+                root_strip = True
+                sig_files = ["Mods", ".dll"]
+            # 5. RE Engine (Capcom)
+            elif (root / "reframework").exists() or (root / "natives").exists() or (root / "re_chunk_000.pak").exists():
+                framework = "REFramework"
+                mods_subdir = "reframework/autorun" if (root / "reframework").exists() else "natives"
+                install_mode = "merge_root"
+                root_strip = False
+                sig_files = ["reframework", "natives", ".lua", ".pak"]
+            # 6. Bethesda Creation Engine
+            elif (root / "Data").exists() and any(
+                p.suffix.lower() in (".esm", ".esp", ".ba2", ".bsa")
+                for p in (root / "Data").iterdir() if p.is_file()
+            ):
+                framework = "CreationEngine"
+                mods_subdir = "Data"
+                install_mode = "merge_data"
+                root_strip = False
+                sig_files = [".esp", ".esm", ".esl", ".bsa", ".ba2"]
+            # 7. Unreal Engine (UE4SS 或 Content/Paks/~mods)
+            else:
+                ue4ss_mods = None
+                paks_dir = None
+                try:
+                    for sub in root.iterdir():
+                        if not sub.is_dir():
+                            continue
+                        if (sub / "Content" / "Paks").exists():
+                            paks_dir = sub / "Content" / "Paks"
+                        if sub.name.lower() == "ue4ss" and (sub / "Mods").exists():
+                            ue4ss_mods = sub / "Mods"
+                    if not ue4ss_mods:
+                        for cand in root.glob("**/ue4ss/Mods"):
+                            if cand.is_dir():
+                                ue4ss_mods = cand
+                                break
+                except Exception:
+                    pass
+
+                if ue4ss_mods:
+                    framework = "UE4SS"
+                    try:
+                        mods_subdir = ue4ss_mods.resolve().relative_to(root).as_posix()
+                    except Exception:
+                        mods_subdir = "ue4ss/Mods"
+                    mod_manifest = "mods.txt"
+                    install_mode = "ue4ss_or_pak"
+                    root_strip = True
+                    sig_files = ["mods.txt", "enabled.txt", ".lua", ".pak"]
+                elif paks_dir:
+                    framework = "UnrealPak"
+                    try:
+                        mods_subdir = (paks_dir / "~mods").resolve().relative_to(root).as_posix()
+                    except Exception:
+                        mods_subdir = "Content/Paks/~mods"
+                    install_mode = "pak_folder"
+                    root_strip = False
+                    sig_files = [".pak", ".ucas", ".utoc"]
+                elif (root / "lml").exists():
+                    framework = "LML"
+                    mods_subdir = "lml"
+                    mod_manifest = "install.xml"
+                    install_mode = "lml_or_root"
+                    root_strip = False
+                    sig_files = ["install.xml", ".asi", ".ytd", ".ydr"]
+                else:
+                    # 检查标准 Mods / mods 目录或 Unity *_Data
+                    for cand_name in ("Mods", "mods", "mod"):
+                        if (root / cand_name).exists():
+                            mods_subdir = cand_name
+                            break
+                    if any(p.is_dir() and p.name.endswith("_Data") for p in root.iterdir()):
+                        framework = "Unity"
+                        sig_files = [".dll"]
+
+        profile: Dict[str, Any] = {
+            "name": game_name or game_domain.title(),
+            "mods_subdir": mods_subdir,
+            "mod_manifest": mod_manifest,
+            "install_mode": install_mode,
+            "root_strip_if_single": root_strip,
+            "signature_files": sig_files,
+            "framework": framework,
+            "learned_from": "disk_probe"
+        }
+        if nexus_game_id:
+            profile["nexus_game_id"] = nexus_game_id
+        return profile
+
+    def learn_game_from_disk(
+        self,
+        game_domain: str,
+        game_root: Path,
+        mods_path: Optional[Path] = None,
+        game_name: Optional[str] = None,
+        nexus_game_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """探测新游戏目录结构并将推断规则持久化至 game_install_rules.json"""
+        profile = self.detect_game_profile_from_disk(
+            game_domain=game_domain,
+            game_root=game_root,
+            mods_path=mods_path,
+            game_name=game_name,
+            nexus_game_id=nexus_game_id
+        )
+        return self.save_learned_rule(game_domain, profile)
+
+    def learn_from_install(
+        self,
+        game_domain: str,
+        game_root: Path,
+        strategy: Dict[str, Any],
+        mod_name: str = "",
+        nexus_game_id: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        安装成功后的规则沉淀闭环：
+        自动提取实际生效的相对部署目录、安装模式、特征扩展名并合并持久化至 mod_mappings.json。
+        """
+        core_curated = {"stardewvalley", "cyberpunk2077", "reddeadredemption2", "phantomblandzero"}
+        is_core = game_domain in core_curated
+
+        target_path = Path(strategy["target_path"]).resolve()
+        root_resolved = Path(game_root).resolve()
+        try:
+            rel_subdir = target_path.relative_to(root_resolved).as_posix()
+            if rel_subdir == ".":
+                rel_subdir = ""
         except Exception:
-            pass
+            rel_subdir = ""
+
+        arch_info = strategy.get("archive_info", {})
+        flist = arch_info.get("file_list", [])
+        observed_sigs: List[str] = []
+        ext_watchlist = {".pak", ".ucas", ".utoc", ".dll", ".lua", ".esp", ".esm", ".esl", ".bsa", ".ba2", ".asi", ".archive", ".xl", ".reds", ".ws", ".bundle", ".w3strings"}
+        marker_watchlist = {"manifest.json", "install.xml", "mods.txt", "enabled.txt", "info.json"}
+        for f in flist:
+            low = f.lower()
+            name = Path(low).name
+            ext = Path(low).suffix
+            if name in marker_watchlist and name not in observed_sigs:
+                observed_sigs.append(name)
+            elif ext in ext_watchlist and ext not in observed_sigs:
+                observed_sigs.append(ext)
+
+        if is_core:
+            existing_core = self.rules.get(game_domain, {})
+            if nexus_game_id and not existing_core.get("nexus_game_id"):
+                return self.save_learned_rule(game_domain, {"nexus_game_id": nexus_game_id, "learned_from": "install_archive"})
+            return None
+
+        existing = self.rules.get(game_domain, {})
+        learned_payload: Dict[str, Any] = {
+            "name": existing.get("name") or game_domain.title(),
+            "mods_subdir": rel_subdir or existing.get("mods_subdir") or "Mods",
+            "install_mode": strategy.get("mode") or existing.get("install_mode") or "subfolder_per_mod",
+            "root_strip_if_single": existing.get("root_strip_if_single", True),
+            "signature_files": observed_sigs,
+            "learned_from": "install_archive"
+        }
+        if mod_name:
+            learned_payload["sample_mod"] = mod_name
+        if nexus_game_id:
+            learned_payload["nexus_game_id"] = nexus_game_id
+        if "manifest.json" in observed_sigs:
+            learned_payload["mod_manifest"] = "manifest.json"
+        elif "install.xml" in observed_sigs:
+            learned_payload["mod_manifest"] = "install.xml"
+
+        return self.save_learned_rule(game_domain, learned_payload)
 
     def _infer_game_domain(self, mods_path: Optional[Path]) -> str:
         if mods_path:
@@ -1070,6 +1307,14 @@ class AdaptiveInstallEngine:
             for f in file_list
         )
         has_esp_bsa = any(f.lower().endswith((".esp", ".esm", ".esl", ".bsa", ".ba2")) for f in file_list)
+        has_bepinex_files = any(
+            f.lower().startswith("bepinex/") or "/bepinex/" in f.lower()
+            for f in file_list
+        )
+        has_reframework_files = any(
+            f.lower().startswith(("reframework/", "natives/")) or "/reframework/" in f.lower() or "/natives/" in f.lower()
+            for f in file_list
+        )
         has_i18n = any("i18n" in f.lower() or f.lower().endswith((".zh.json", "zh-cn.json", "chinese.json")) for f in file_list)
 
         cp77_roots = {"archive", "bin", "r6", "red4ext", "mods", "engine"}
@@ -1135,6 +1380,8 @@ class AdaptiveInstallEngine:
             "has_pak_files": has_pak_files,
             "has_ue4ss_files": has_ue4ss_files,
             "has_esp_bsa": has_esp_bsa,
+            "has_bepinex_files": has_bepinex_files,
+            "has_reframework_files": has_reframework_files,
             "has_i18n": has_i18n,
             "is_single_root": is_single_root,
             "single_root_name": single_root_name
@@ -1237,6 +1484,50 @@ class AdaptiveInstallEngine:
         elif archive_info["has_esp_bsa"]:
             target_path = game_root / "Data"
             mode = "merge_game_root"
+
+        # 5.2 巫师3 (REDengine 3: 区分根目录 mods/dlc/bin、mod* 与 dlc* 目录)
+        elif game_domain == "witcher3" or profile.get("install_mode") == "witcher3_mod":
+            flist = archive_info["file_list"]
+            w3_roots = {"mods", "dlc", "bin"}
+            if any(f.split("/")[0].lower() in w3_roots for f in flist):
+                target_path = game_root
+                mode = "merge_game_root"
+            elif archive_info["is_single_root"] and any(len(f.split("/")) > 1 and f.split("/")[1].lower() in w3_roots for f in flist):
+                target_path = game_root
+                strip_prefix = archive_info["single_root_name"] or ""
+                mode = "merge_game_root"
+            elif any(f.split("/")[0].lower().startswith("dlc") for f in flist):
+                target_path = game_root / "dlc"
+                mode = "direct_extract_with_root"
+            elif any(f.split("/")[0].lower().startswith("mod") for f in flist):
+                target_path = game_root / "mods"
+                mode = "direct_extract_with_root"
+            elif archive_info["is_single_root"] and any(len(f.split("/")) > 1 and f.split("/")[1].lower().startswith("mod") for f in flist):
+                target_path = game_root / "mods"
+                strip_prefix = archive_info["single_root_name"] or ""
+                mode = "strip_prefix_extract"
+            else:
+                target_path = game_root / (mods_subdir or "mods")
+                mode = "direct_extract_with_root" if archive_info["is_single_root"] else "subfolder_per_mod"
+
+        # 5.5 Unity BepInEx 与 Capcom REFramework 通用框架模组（新游戏自适应支持）
+        elif archive_info.get("has_bepinex_files"):
+            flist = archive_info["file_list"]
+            target_path = game_root
+            mode = "merge_game_root"
+            if archive_info["is_single_root"] and not any(f.lower().startswith("bepinex/") for f in flist):
+                strip_prefix = archive_info["single_root_name"] or ""
+        elif archive_info.get("has_reframework_files"):
+            flist = archive_info["file_list"]
+            target_path = game_root
+            mode = "merge_game_root"
+            if archive_info["is_single_root"] and not any(f.lower().startswith(("reframework/", "natives/")) for f in flist):
+                strip_prefix = archive_info["single_root_name"] or ""
+        elif profile.get("install_mode") == "merge_root":
+            target_path = game_root
+            mode = "merge_game_root"
+            if archive_info["is_single_root"] and strip_root:
+                strip_prefix = archive_info["single_root_name"] or ""
 
         # 6. 星露谷 SMAPI 或通用子目录模组（含自动去双层嵌套）
         else:

@@ -40,7 +40,8 @@ from adaptive_installer import AdaptiveInstallEngine, find_project_root, get_sta
 from config_manager import (
     load_config, get_system_paths, normalize_game_domain, get_nexus_domain,
     get_game_config, resolve_api_key, resolve_mods_path, resolve_game_root,
-    parse_nexus_reference, get_search_keywords, get_upstream_mirrors, get_mod_translations
+    parse_nexus_reference, get_search_keywords, get_upstream_mirrors, get_mod_translations,
+    learn_search_keyword, learn_game_alias, load_mappings
 )
 
 
@@ -610,7 +611,10 @@ def deploy_and_register_archive(
     tmp_dir: Path,
     installed_list: List[Dict[str, Any]],
     with_translation: bool = False,
-    download_source: str = "local_archive"
+    download_source: str = "local_archive",
+    original_query: str = "",
+    search_term: str = "",
+    nexus_game_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """统一执行解压安装、前置校验、汉化叠加、专属清单登记并输出自包含的 [安装验证摘要]"""
     install_res = engine.install_mod_archive(arch, game_domain, game_root, mod_name)
@@ -693,6 +697,27 @@ def deploy_and_register_archive(
     engine.save_installed_registry(mods_path, reg, game_domain=game_domain)
     registry_file = engine.get_installed_registry_path(mods_path, game_domain=game_domain)
 
+    # 学习闭环：安装成功后自动沉淀新游戏部署规则与中文搜索意图映射
+    learned_notes: List[str] = []
+    try:
+        learned_prof = engine.learn_from_install(
+            game_domain=game_domain,
+            game_root=game_root,
+            strategy=strategy,
+            mod_name=mod_name,
+            nexus_game_id=nexus_game_id
+        )
+        if learned_prof:
+            learned_notes.append(f"规则已记忆({learned_prof.get('mods_subdir')} / {learned_prof.get('install_mode')})")
+    except Exception:
+        pass
+    try:
+        if original_query:
+            if learn_search_keyword(game_domain, original_query, search_term or mod_name, mod_name=mod_name):
+                learned_notes.append(f"中文词条已沉淀({original_query} -> {search_term or mod_name})")
+    except Exception:
+        pass
+
     # 统计顶层落盘文件结构，供调用方直接确认无双层嵌套，省去额外的 Get-ChildItem 复查
     top_entries = []
     if final_dest.exists() and final_dest.is_dir():
@@ -709,6 +734,8 @@ def deploy_and_register_archive(
     if with_translation:
         print(f"  ├─ 汉化状态: {'已合并 ' + str(i18n_applied_files) if i18n_applied_files else '当前模组无预置附加汉化包'}")
     print(f"  ├─ 前置依赖: {missing_summary}")
+    if learned_notes:
+        print(f"  ├─ 学习沉淀: {'; '.join(learned_notes)} -> mod_mappings.json")
     print(f"  └─ 专属清单: {registry_file} (当前活跃模组共 {active_total} 个)")
     return reg[reg_key]
 
@@ -927,6 +954,12 @@ def main():
     ap.add_argument("--force-rescan", action="store_true", help="配合 --init-config 强制重新探测本地游戏")
     ap.add_argument("--add-game", help="显式授权并按需探测添加新游戏至 mod_config.json 白名单")
     ap.add_argument("--game-path", help="配合 --add-game 指定自定义游戏根目录")
+    ap.add_argument("--show-learned", action="store_true", help="查看 mod_mappings.json 中已沉淀的游戏规则与别名总览")
+    ap.add_argument("--learn-rule", action="store_true", help="手动录入/覆盖指定游戏的自适应安装规则至 mod_mappings.json（配合 -g / --mods-subdir / --install-mode / --framework / --alias）")
+    ap.add_argument("--mods-subdir", help="配合 --learn-rule 指定相对模组目录（如 BepInEx/plugins）")
+    ap.add_argument("--install-mode", help="配合 --learn-rule 指定部署模式（subfolder_per_mod / merge_root / pak_folder / witcher3_mod / bepinex 等）")
+    ap.add_argument("--framework", help="配合 --learn-rule 指定引擎框架标识（如 BepInEx / UnrealPak / REFramework / REDengine3）")
+    ap.add_argument("--alias", help="配合 --learn-rule 登记游戏中文别名")
     ap.add_argument("--tmp-dir", help="临时下载目录")
     ap.add_argument("--non-interactive", action="store_true", help="非交互自动化执行模式")
     ap.add_argument("--select-index", type=int, default=None, help="搜索结果选取序号 (1-based)")
@@ -938,6 +971,37 @@ def main():
         os.environ["MOD_CONFIG_PATH"] = str(Path(args.config).resolve())
 
     cfg_target = Path(args.config) if args.config else PROJECT_CONFIG
+
+    if args.show_learned:
+        mappings = load_mappings()
+        summary = {
+            "game_profiles": mappings.get("game_profiles", {}),
+            "game_aliases": mappings.get("game_aliases", {}),
+            "search_keywords_games": {k: len(v) for k, v in mappings.get("search_keywords", {}).items() if isinstance(v, dict)}
+        }
+        print("\n[统一映射与学习规则总览 (mod_mappings.json)]")
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return
+
+    if args.learn_rule:
+        if not args.game_domain:
+            print("[错误] --learn-rule 必须配合 -g <游戏域名> 使用。")
+            sys.exit(1)
+        dom = normalize_game_domain(args.game_domain)
+        eng = AdaptiveInstallEngine()
+        rule_payload: Dict[str, Any] = {"learned_from": "manual"}
+        if args.mods_subdir:
+            rule_payload["mods_subdir"] = args.mods_subdir
+        if args.install_mode:
+            rule_payload["install_mode"] = args.install_mode
+        if args.framework:
+            rule_payload["framework"] = args.framework
+        saved = eng.save_learned_rule(dom, rule_payload)
+        if args.alias:
+            learn_game_alias(args.alias, dom)
+        print(f"✓ 已写入游戏 [{dom}] 学习规则至 mod_mappings.json:")
+        print(json.dumps(saved, indent=2, ensure_ascii=False))
+        return
 
     if args.add_game:
         print(f"\n[授权添加游戏] 正在扫描并添加游戏: {args.add_game} ...")
@@ -1136,6 +1200,8 @@ def main():
     target_mod_ver = args.mod_version or "最新"
     nxm_key = parsed_ref.get("key") if (parsed_ref and parsed_ref["type"] == "nxm") else None
     nxm_expires = parsed_ref.get("expires") if (parsed_ref and parsed_ref["type"] == "nxm") else None
+    original_query_text = ""
+    resolved_search_term = ""
 
     gid = engine.rules.get(game_domain, {}).get("nexus_game_id")
     if not gid and api:
@@ -1151,7 +1217,9 @@ def main():
             if not query:
                 return
 
+        original_query_text = query
         search_term = translate_mod_query(query, game_domain)
+        resolved_search_term = search_term
         if search_term != query:
             print(f"\n[语义映射] 中文意图 [{query}] -> Nexus 最佳检索词: [{search_term}]")
 
@@ -1297,7 +1365,10 @@ def main():
         tmp_dir=tmp_dir,
         installed_list=installed_list,
         with_translation=args.with_translation,
-        download_source=acq.get("source") or "auto"
+        download_source=acq.get("source") or "auto",
+        original_query=original_query_text,
+        search_term=resolved_search_term,
+        nexus_game_id=gid
     )
 
 

@@ -72,7 +72,46 @@
         "mods"
       ],
       "nexus_game_id": 3333
+    },
+    "witcher3": {
+      "name": "The Witcher 3: Wild Hunt",
+      "mods_subdir": "mods",
+      "mod_manifest": null,
+      "install_mode": "witcher3_mod",
+      "root_strip_if_single": true,
+      "framework": "REDengine3",
+      "signature_files": [
+        "mods",
+        "dlc",
+        "bin",
+        ".ws",
+        ".bundle",
+        ".w3strings"
+      ],
+      "nexus_game_id": 952,
+      "learned_from": "curated_learn"
+    },
+    "hollowknight": {
+      "name": "Hollow Knight",
+      "mods_subdir": "hollow_knight_Data/Managed/Mods",
+      "mod_manifest": null,
+      "install_mode": "subfolder_per_mod",
+      "root_strip_if_single": true,
+      "framework": "HollowKnightModdingAPI",
+      "signature_files": [
+        ".dll",
+        "Modding.dll"
+      ],
+      "nexus_game_id": 3016,
+      "learned_from": "curated_learn"
     }
+  },
+  "game_aliases": {
+    "巫师3狂猎": "witcher3",
+    "狂猎": "witcher3",
+    "w3": "witcher3",
+    "空洞": "hollowknight",
+    "hk": "hollowknight"
   },
   "translations": {
     "stardewvalley": {
@@ -412,6 +451,29 @@
         "virtualatelier": "Virtual Atelier 虚拟服装工作室商店框架",
         "xrx_stockings": "XRX 2024 蕾丝高弹丝袜集合包 (ArchiveXL)"
       }
+    },
+    "witcher3": {
+      "mod_names": {
+        "Fast Travel from Anywhere": "随地快速传送 (Fast Travel from Anywhere)",
+        "Over 9000 - Weight limit mod": "9000无限负重 (Over 9000)",
+        "The Witcher 3 HD Reworked Project": "巫师3高清材质重制包 (HDRP)",
+        "Auto Apply Oils": "战斗自动涂油 (Auto Apply Oils)",
+        "AutoLoot": "自动拾取 (AutoLoot)",
+        "All Quest Objectives On Map": "大地图显示全部任务目标",
+        "Script Merger": "脚本合并工具 (Script Merger)",
+        "No Fall Damage": "取消高处坠落伤害 (No Fall Damage)"
+      }
+    },
+    "hollowknight": {
+      "mod_names": {
+        "DebugMod": "调试与作弊菜单 (DebugMod)",
+        "Enemy HP Bar": "敌人血条显示 (Enemy HP Bar)",
+        "CustomKnight": "自定义角色皮肤框架 (CustomKnight)",
+        "HKMP": "空洞骑士多人联机模组 (HKMP)",
+        "Benchwarp": "长椅快速传送 (Benchwarp)",
+        "Satchel": "Satchel 通用前置库",
+        "Randomizer 4": "全物品随机化模组 (Randomizer 4)"
+      }
     }
   },
   "ue4ss": {
@@ -511,6 +573,39 @@
       "ui": "SkyUI",
       "作弊": "Cheat Room",
       "地图": "A Quality World Map"
+    },
+    "witcher3": {
+      "快速传送": "Fast Travel from Anywhere",
+      "随地传送": "Fast Travel from Anywhere",
+      "无限负重": "Over 9000 - Weight limit mod",
+      "负重": "Over 9000 - Weight limit mod",
+      "高清材质": "The Witcher 3 HD Reworked Project",
+      "画质": "The Witcher 3 HD Reworked Project",
+      "自动涂油": "Auto Apply Oils",
+      "自动拾取": "AutoLoot",
+      "控制台": "Debug Console",
+      "脚本合并": "Script Merger",
+      "任务标记": "All Quest Objectives On Map",
+      "跳过开场": "No Intro",
+      "商店资金": "Rich Merchants",
+      "无掉落伤害": "No Fall Damage"
+    },
+    "hollowknight": {
+      "调试": "DebugMod",
+      "作弊": "DebugMod",
+      "修改器": "DebugMod",
+      "血条": "Enemy HP Bar",
+      "怪物血条": "Enemy HP Bar",
+      "自定义皮肤": "CustomKnight",
+      "皮肤": "CustomKnight",
+      "联机": "HKMP",
+      "多人": "HKMP",
+      "随机": "Randomizer 4",
+      "长椅传送": "Benchwarp",
+      "传送": "Benchwarp",
+      "护符槽": "CharmChanger",
+      "更多护符": "CharmChanger",
+      "前置": "Satchel"
     },
     "general": {
       "作弊": "Cheat",

@@ -11,5 +11,6 @@
 3. **软删除铁律**：卸载模组必须调用 `manage_mod.py remove` 移入 `deleted_mods/`，绝对禁止物理直删。
 4. **403 自动降级**：Nexus API 拦截 403 时，自动调用 Chrome DevTools MCP 模拟慢速下载。
 5. **去嵌套部署**：解压必须通过 `adaptive_installer.py` 对齐游戏 Mods 目录，并更新 `installed_mods/` 结构化清单。
+6. **Git 提交管控**：严禁未经用户明确指令或确认擅自执行 `git commit` / `git push`；提交记录必须使用简短有效的中文描述。
 
 > 详细规范与标准操作规程 (SOP) 见 [AGENTS.md](./AGENTS.md)。

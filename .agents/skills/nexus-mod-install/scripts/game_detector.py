@@ -539,15 +539,39 @@ def ensure_game_in_config(config_path: Path, game_query: str, custom_path: Optio
     if custom_path:
         gp = Path(custom_path).resolve()
         if gp.exists():
-            # 推测 mods 目录
-            mods_sub = "Mods"
+            # 推测 mods 目录：优先查内置 Steam 表，未命中时自动探测磁盘引擎框架并学习规则
+            mods_sub = None
+            disp_name = domain.title()
+            known_nid = None
             for aid, (d, ms, dn, nid) in STEAM_APPID_MAP.items():
                 if d == domain:
                     mods_sub = ms
+                    disp_name = dn
+                    known_nid = nid
                     break
+
+            learned_prof = None
+            try:
+                from adaptive_installer import AdaptiveInstallEngine
+                from config_manager import learn_game_alias
+                eng = AdaptiveInstallEngine()
+                learned_prof = eng.learn_game_from_disk(
+                    game_domain=domain,
+                    game_root=gp,
+                    mods_path=(gp / mods_sub) if mods_sub else None,
+                    game_name=disp_name,
+                    nexus_game_id=known_nid
+                )
+                if not mods_sub and learned_prof.get("mods_subdir"):
+                    mods_sub = learned_prof["mods_subdir"]
+                learn_game_alias(game_query, domain)
+            except Exception as le:
+                print(f"[提示] 引擎自动探测与规则学习跳过: {le}")
+
+            mods_sub = mods_sub or "Mods"
             mp = gp / mods_sub
             new_entry = {
-                "name": domain.title(),
+                "name": disp_name,
                 "gamePath": str(gp).replace("\\", "/"),
                 "modsPath": str(mp).replace("\\", "/"),
                 "gameDomain": domain,
@@ -556,9 +580,11 @@ def ensure_game_in_config(config_path: Path, game_query: str, custom_path: Optio
                 "source": "CustomSpecified"
             }
             games[domain] = new_entry
-            cfg["detected_summary"]["active_installed_count"] = len(games)
+            cfg.setdefault("detected_summary", {})["active_installed_count"] = len(games)
             config_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
             print(f"[配置动态添加] 已成功将游戏 [{domain}] 追加至: {config_path}")
+            if learned_prof:
+                print(f"[规则自动学习] 识别框架: {learned_prof.get('framework', 'Generic')} | 相对模组目录: {learned_prof.get('mods_subdir')} | 模式: {learned_prof.get('install_mode')}")
             return new_entry
 
     # 3. 自动定向探测该游戏
@@ -575,12 +601,29 @@ def ensure_game_in_config(config_path: Path, game_query: str, custom_path: Optio
             "source": detected_profile.get("source") or "OnDemandDetected"
         }
         domain_key = detected_profile["gameDomain"]
+        learned_prof = None
+        try:
+            from adaptive_installer import AdaptiveInstallEngine
+            from config_manager import learn_game_alias
+            eng = AdaptiveInstallEngine()
+            learned_prof = eng.learn_game_from_disk(
+                game_domain=domain_key,
+                game_root=Path(new_entry["gamePath"]),
+                mods_path=Path(new_entry["modsPath"]),
+                game_name=new_entry["name"]
+            )
+            learn_game_alias(game_query, domain_key)
+        except Exception as le:
+            print(f"[提示] 引擎自动探测与规则学习跳过: {le}")
+
         games[domain_key] = new_entry
         cfg.setdefault("detected_summary", {})["active_installed_count"] = len(games)
         config_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"\n[按需探测成功] 成功扫描到游戏 [{new_entry['name']}] 并已动态写入 mod_config.json！")
         print(f"  - 游戏目录: {new_entry['gamePath']}")
         print(f"  - 模组目录: {new_entry['modsPath']}")
+        if learned_prof:
+            print(f"  - 学习规则: 框架={learned_prof.get('framework', 'Generic')} | 模式={learned_prof.get('install_mode')} (已沉淀至 mod_mappings.json)")
         return new_entry
 
     return None

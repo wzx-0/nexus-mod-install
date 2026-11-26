@@ -34,6 +34,7 @@ def find_project_root() -> Path:
 
 PROJECT_ROOT = find_project_root()
 PROJECT_CONFIG = PROJECT_ROOT / "mod_config.json"
+MAPPINGS_FILE = PROJECT_ROOT / "mod_mappings.json"
 APPDATA_CONFIG = Path(os.environ.get("APPDATA", "")) / "NexusModManager" / "config.json"
 
 GAME_ALIAS_MAP = {
@@ -328,9 +329,14 @@ def init_project_environment(
 
 
 def normalize_game_domain(name_or_domain: str) -> str:
-    """归一化游戏名称或别名为标准 gameDomain"""
+    """归一化游戏名称或别名为标准 gameDomain（叠加静态别名表与 mod_mappings.json 中的学习别名表）"""
     clean = str(name_or_domain).strip().lower()
-    return GAME_ALIAS_MAP.get(clean, clean)
+    if clean in GAME_ALIAS_MAP:
+        return GAME_ALIAS_MAP[clean]
+    learned_aliases = load_mappings().get("game_aliases", {})
+    if clean in learned_aliases:
+        return str(learned_aliases[clean]).strip().lower()
+    return clean
 
 
 def get_nexus_domain(game_domain: str) -> str:
@@ -491,50 +497,153 @@ def parse_nexus_reference(raw_input: str) -> Optional[Dict[str, Any]]:
 
 _MAPPINGS_CACHE: Optional[Dict[str, Any]] = None
 _MAPPINGS_MTIME: float = 0.0
+_MAPPINGS_PATH_KEY: str = ""
 
 
 def load_mappings(custom_mappings_path: Optional[str] = None) -> Dict[str, Any]:
     """
-    统一读取 mod_mappings.json 字典配置。
-    具备基于文件 mtime 的智能热加载能力，在用户修改 JSON 时立即生效，无需修改任何代码。
+    统一读取 mod_mappings.json 单一数据源字典配置。
+    具备基于文件 mtime 的智能热加载能力，直接读取 PROJECT_ROOT/mod_mappings.json 避免循环依赖。
     """
-    global _MAPPINGS_CACHE, _MAPPINGS_MTIME
+    global _MAPPINGS_CACHE, _MAPPINGS_MTIME, _MAPPINGS_PATH_KEY
 
-    paths = get_system_paths()
-    target_path = Path(custom_mappings_path) if custom_mappings_path else paths["mappings_file"]
+    target_path = Path(custom_mappings_path) if custom_mappings_path else MAPPINGS_FILE
+    path_key = str(target_path)
 
     if target_path and target_path.exists():
         try:
             mtime = target_path.stat().st_mtime
-            if _MAPPINGS_CACHE is not None and mtime == _MAPPINGS_MTIME:
+            if _MAPPINGS_CACHE is not None and _MAPPINGS_PATH_KEY == path_key and mtime == _MAPPINGS_MTIME:
                 return _MAPPINGS_CACHE
             data = json.loads(target_path.read_text(encoding="utf-8"))
             _MAPPINGS_CACHE = data
             _MAPPINGS_MTIME = mtime
+            _MAPPINGS_PATH_KEY = path_key
             return data
         except Exception as e:
             print(f"[警告] 读取映射文件 {target_path} 异常: {e}，将使用内存兜底")
 
-    if _MAPPINGS_CACHE is not None:
+    if _MAPPINGS_CACHE is not None and _MAPPINGS_PATH_KEY == path_key:
         return _MAPPINGS_CACHE
 
     return {
         "game_profiles": {},
+        "game_aliases": {},
         "translations": {},
-        "ue4ss": {"builtin_folders": []}
+        "ue4ss": {"builtin_folders": []},
+        "search_keywords": {},
+        "upstream_mirrors": {}
     }
+
+
+def save_mappings(data: Dict[str, Any], custom_mappings_path: Optional[Path] = None) -> Path:
+    """持久化更新 mod_mappings.json 单一数据源并刷新热缓存"""
+    global _MAPPINGS_CACHE, _MAPPINGS_MTIME, _MAPPINGS_PATH_KEY
+    target = Path(custom_mappings_path) if custom_mappings_path else MAPPINGS_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _MAPPINGS_CACHE = data
+    _MAPPINGS_MTIME = target.stat().st_mtime
+    _MAPPINGS_PATH_KEY = str(target)
+    return target
+
+
+def learn_game_profile(
+    game_domain: str,
+    profile_data: Dict[str, Any],
+    custom_mappings_path: Optional[Path] = None
+) -> Dict[str, Any]:
+    """合并并持久化指定游戏的自适应安装规则至 mod_mappings.json"""
+    import datetime
+    domain = str(game_domain).strip().lower()
+    data = load_mappings(str(custom_mappings_path) if custom_mappings_path else None)
+    gp = data.setdefault("game_profiles", {})
+    existing = dict(gp.get(domain, {}))
+
+    merged_sigs: List[str] = []
+    for sig in (existing.get("signature_files") or []) + (profile_data.get("signature_files") or []):
+        if sig and sig not in merged_sigs:
+            merged_sigs.append(sig)
+
+    merged = dict(existing)
+    for k, v in profile_data.items():
+        if v is not None and v != "":
+            merged[k] = v
+    if merged_sigs:
+        merged["signature_files"] = merged_sigs
+    merged["learned_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    gp[domain] = merged
+    save_mappings(data, custom_mappings_path)
+    return merged
+
+
+def learn_game_alias(alias: str, game_domain: str, custom_mappings_path: Optional[Path] = None) -> bool:
+    """沉淀新游戏的中文名/别名到 mod_mappings.json 的 game_aliases"""
+    clean_alias = str(alias or "").strip().lower()
+    clean_domain = str(game_domain or "").strip().lower()
+    if not clean_alias or not clean_domain or clean_alias == clean_domain:
+        return False
+    if clean_alias in GAME_ALIAS_MAP:
+        return False
+    data = load_mappings(str(custom_mappings_path) if custom_mappings_path else None)
+    aliases = data.setdefault("game_aliases", {})
+    if aliases.get(clean_alias) == clean_domain:
+        return False
+    aliases[clean_alias] = clean_domain
+    save_mappings(data, custom_mappings_path)
+    return True
+
+
+def learn_search_keyword(
+    game_domain: str,
+    zh_query: str,
+    en_term: str,
+    mod_name: str = "",
+    custom_mappings_path: Optional[Path] = None
+) -> bool:
+    """安装成功后反哺中文搜索意图词与模组中文名至 mod_mappings.json，后续检索直接命中"""
+    q = str(zh_query or "").strip()
+    en = str(en_term or "").strip()
+    if not q or not en or q.lower() == en.lower():
+        return False
+    if not any("\u4e00" <= ch <= "\u9fff" for ch in q):
+        return False
+    if len(q) > 32:
+        return False
+
+    domain = normalize_game_domain(game_domain)
+    data = load_mappings(str(custom_mappings_path) if custom_mappings_path else None)
+    sk = data.setdefault("search_keywords", {})
+    if q in sk.get(domain, {}) or q in sk.get("general", {}):
+        return False
+
+    game_sk = sk.setdefault(domain, {})
+    changed = False
+    if game_sk.get(q) != en:
+        game_sk[q] = en
+        changed = True
+
+    if mod_name and not any("\u4e00" <= ch <= "\u9fff" for ch in mod_name):
+        game_mn = data.setdefault("translations", {}).setdefault(domain, {}).setdefault("mod_names", {})
+        if mod_name not in game_mn:
+            game_mn[mod_name] = f"{q} ({mod_name})"
+            changed = True
+
+    if changed:
+        save_mappings(data, custom_mappings_path)
+    return changed
 
 
 def get_game_profiles() -> Dict[str, Any]:
     """获取所有游戏的安装规则与特征 Profile 字典"""
-    return load_mappings().get("game_profiles", {})
+    return dict(load_mappings().get("game_profiles", {}))
 
 
 def get_mod_translations(game_domain: str = "stardewvalley") -> Dict[str, Any]:
     """获取指定游戏的中文名称、NPC 对照与关键词映射表"""
     domain = normalize_game_domain(game_domain)
-    trans = load_mappings().get("translations", {})
-    return trans.get(domain, {})
+    return dict(load_mappings().get("translations", {}).get(domain, {}))
 
 
 def get_ue4ss_builtin_folders() -> Set[str]:
@@ -556,8 +665,8 @@ def get_search_keywords(game_domain: str = "stardewvalley") -> Dict[str, Dict[st
     domain = normalize_game_domain(game_domain)
     sk = load_mappings().get("search_keywords", {})
     return {
-        "game": sk.get(domain, {}),
-        "general": sk.get("general", {})
+        "game": dict(sk.get(domain, {})),
+        "general": dict(sk.get("general", {}))
     }
 
 
