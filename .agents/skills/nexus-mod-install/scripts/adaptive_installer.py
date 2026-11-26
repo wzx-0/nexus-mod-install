@@ -42,7 +42,7 @@ def find_project_root(start_path: Optional[Path] = None) -> Path:
         if (p / "mod_config.json").exists() or (p / ".agents").exists():
             return p
     # 通过脚本文件相对层级回溯
-    script_root = Path(__file__).resolve().parents[3]
+    script_root = Path(__file__).resolve().parents[4]
     if script_root.exists() and (script_root / ".agents").exists():
         return script_root
     return curr

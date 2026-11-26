@@ -632,7 +632,11 @@ def init_mod_config(target_path: Path, force: bool = False) -> dict:
                     scanned = engine.scan_installed_mods(mpath, dom)
                     ginfo["installed_mods_count"] = len(scanned)
                     reg_file = engine.get_installed_registry_path(mpath, game_domain=dom)
-                    ginfo["installed_mods_file"] = str(reg_file).replace("\\", "/")
+                    try:
+                        rel_reg = reg_file.resolve().relative_to(target_path.parent.resolve())
+                        ginfo["installed_mods_file"] = f"./{rel_reg.as_posix()}"
+                    except Exception:
+                        ginfo["installed_mods_file"] = str(reg_file).replace("\\", "/")
                 except Exception as ge:
                     print(f"[提示] 扫描游戏 [{dom}] 提示: {ge}")
 
@@ -640,7 +644,11 @@ def init_mod_config(target_path: Path, force: bool = False) -> dict:
         workspace_reg_file = target_path.parent / "installed_mods.json"
         grouped_all = engine.get_full_grouped_registry()
         workspace_reg_file.write_text(json.dumps(grouped_all, indent=2, ensure_ascii=False), encoding="utf-8")
-        new_cfg["detected_summary"]["workspace_installed_mods_file"] = str(workspace_reg_file).replace("\\", "/")
+        try:
+            rel_ws = workspace_reg_file.resolve().relative_to(target_path.parent.resolve())
+            new_cfg["detected_summary"]["workspace_installed_mods_file"] = f"./{rel_ws.as_posix()}"
+        except Exception:
+            new_cfg["detected_summary"]["workspace_installed_mods_file"] = str(workspace_reg_file).replace("\\", "/")
         new_cfg["detected_summary"]["primary_game_mods_count"] = len(grouped_all.get(def_dom, {}))
     except Exception as e:
         print(f"[警告] 模组清单扫描提示: {e}")
